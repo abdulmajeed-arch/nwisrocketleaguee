@@ -1,5 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
 import TeamsClient from "@/components/teams/TeamsClient";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function TeamsPage() {
   const supabase = await createClient();
@@ -46,15 +46,15 @@ export default async function TeamsPage() {
   }
 
   const teamData = (teams ?? []).map((team) => {
-    const teamPlayers = (team.team_players ?? [])
-      .map((entry) => {
-        const player = Array.isArray(entry.players)
-          ? entry.players[0]
-          : entry.players;
+    const teamPlayers = (team.team_players ?? []).flatMap((entry) => {
+      const player = Array.isArray(entry.players)
+        ? entry.players[0]
+        : entry.players;
 
-        if (!player) return null;
+      if (!player) return [];
 
-        return {
+      return [
+        {
           id: player.id,
           fullName: player.full_name,
           photoUrl: player.photo_url,
@@ -62,13 +62,14 @@ export default async function TeamsPage() {
           section: player.section,
           nationality: player.nationality,
           rank: player.rocket_league_rank,
-        };
-      })
-      .filter(Boolean);
+        },
+      ];
+    });
 
     const teamMatches = (matches ?? []).filter(
       (match) =>
-        match.team_a_id === team.id || match.team_b_id === team.id
+        match.team_a_id === team.id ||
+        match.team_b_id === team.id
     );
 
     return {
