@@ -47,7 +47,9 @@ export default async function PlayersPage() {
       photoUrl: player.photo_url,
       grade: player.grade,
       section: player.section,
-      nationality: player.nationality,
+      nationality: player.nationality
+        ? player.nationality.trim().toUpperCase()
+        : null,
       rank: player.rocket_league_rank,
       team: team
         ? {
