@@ -31,8 +31,11 @@ export default async function AdminMatchesPage() {
         id,
         scheduled_at,
         status,
+        stage,
         team_a_id,
         team_b_id,
+        team_a_score,
+        team_b_score,
         teams_a:teams!matches_team_a_id_fkey (
           id,
           name

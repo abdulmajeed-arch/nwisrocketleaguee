@@ -46,26 +46,37 @@ type MatchStat = {
   shots: number;
 };
 
+type MatchStage = "league" | "semifinal" | "final";
+
 type Match = {
   id: string;
   scheduled_at: string;
   status: "upcoming" | "completed";
+  stage: MatchStage;
   team_a_id: string;
   team_b_id: string;
-  teams_a: {
-    id: string;
-    name: string;
-  } | {
-    id: string;
-    name: string;
-  }[] | null;
-  teams_b: {
-    id: string;
-    name: string;
-  } | {
-    id: string;
-    name: string;
-  }[] | null;
+  team_a_score: number;
+  team_b_score: number;
+  teams_a:
+    | {
+        id: string;
+        name: string;
+      }
+    | {
+        id: string;
+        name: string;
+      }[]
+    | null;
+  teams_b:
+    | {
+        id: string;
+        name: string;
+      }
+    | {
+        id: string;
+        name: string;
+      }[]
+    | null;
   match_player_stats: MatchStat[];
 };
 
@@ -80,12 +91,6 @@ function getTeam(
   team: Match["teams_a"] | Match["teams_b"]
 ) {
   return Array.isArray(team) ? team[0] : team;
-}
-
-function getPlayer(teamPlayer: TeamPlayer) {
-  return Array.isArray(teamPlayer.players)
-    ? teamPlayer.players[0]
-    : teamPlayer.players;
 }
 
 function toDateTimeLocal(value: string) {
@@ -108,6 +113,28 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function stageLabel(stage: MatchStage) {
+  switch (stage) {
+    case "semifinal":
+      return "Semifinal";
+    case "final":
+      return "Final";
+    default:
+      return "League";
+  }
+}
+
+function stageDescription(stage: MatchStage) {
+  switch (stage) {
+    case "semifinal":
+      return "Playoff semifinal";
+    case "final":
+      return "Championship final";
+    default:
+      return "League phase";
+  }
+}
+
 export default function AdminMatchesClient({
   initialMatches,
   initialTeams,
@@ -119,7 +146,9 @@ export default function AdminMatchesClient({
 }) {
   const supabase = createClient();
 
-  const [matches, setMatches] = useState<Match[]>(initialMatches);
+  const [matches, setMatches] =
+    useState<Match[]>(initialMatches);
+
   const [teams] = useState<Team[]>(initialTeams);
   const [players] = useState<Player[]>(initialPlayers);
 
@@ -129,21 +158,31 @@ export default function AdminMatchesClient({
   >("all");
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingMatch, setEditingMatch] = useState<Match | null>(null);
+  const [editingMatch, setEditingMatch] =
+    useState<Match | null>(null);
 
   const [teamA, setTeamA] = useState("");
   const [teamB, setTeamB] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
+
   const [status, setStatus] = useState<
     "upcoming" | "completed"
   >("upcoming");
+
+  const [stage, setStage] =
+    useState<MatchStage>("league");
+
+  const [teamAScore, setTeamAScore] = useState(0);
+  const [teamBScore, setTeamBScore] = useState(0);
 
   const [playerStats, setPlayerStats] = useState<
     Record<string, PlayerStatForm>
   >({});
 
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleting, setDeleting] =
+    useState<string | null>(null);
+
   const [error, setError] = useState("");
 
   const filteredMatches = useMemo(() => {
@@ -166,8 +205,13 @@ export default function AdminMatchesClient({
     });
   }, [matches, search, filter]);
 
-  const selectedTeamA = teams.find((team) => team.id === teamA);
-  const selectedTeamB = teams.find((team) => team.id === teamB);
+  const selectedTeamA = teams.find(
+    (team) => team.id === teamA
+  );
+
+  const selectedTeamB = teams.find(
+    (team) => team.id === teamB
+  );
 
   const selectedPlayers = useMemo(() => {
     const ids = new Set<string>();
@@ -183,15 +227,21 @@ export default function AdminMatchesClient({
     return players.filter((player) => ids.has(player.id));
   }, [selectedTeamA, selectedTeamB, players]);
 
-  const teamAScore = selectedTeamA
+  const calculatedTeamAScore = selectedTeamA
     ? selectedTeamA.team_players.reduce((total, item) => {
-        return total + (playerStats[item.player_id]?.goals ?? 0);
+        return (
+          total +
+          (playerStats[item.player_id]?.goals ?? 0)
+        );
       }, 0)
     : 0;
 
-  const teamBScore = selectedTeamB
+  const calculatedTeamBScore = selectedTeamB
     ? selectedTeamB.team_players.reduce((total, item) => {
-        return total + (playerStats[item.player_id]?.goals ?? 0);
+        return (
+          total +
+          (playerStats[item.player_id]?.goals ?? 0)
+        );
       }, 0)
     : 0;
 
@@ -200,6 +250,9 @@ export default function AdminMatchesClient({
     setTeamB("");
     setScheduledAt("");
     setStatus("upcoming");
+    setStage("league");
+    setTeamAScore(0);
+    setTeamBScore(0);
     setPlayerStats({});
     setEditingMatch(null);
     setError("");
@@ -215,12 +268,24 @@ export default function AdminMatchesClient({
     const b = getTeam(match.teams_b);
 
     setEditingMatch(match);
+
     setTeamA(a?.id ?? match.team_a_id);
     setTeamB(b?.id ?? match.team_b_id);
-    setScheduledAt(toDateTimeLocal(match.scheduled_at));
-    setStatus(match.status);
 
-    const existingStats: Record<string, PlayerStatForm> = {};
+    setScheduledAt(
+      toDateTimeLocal(match.scheduled_at)
+    );
+
+    setStatus(match.status);
+    setStage(match.stage ?? "league");
+
+    setTeamAScore(match.team_a_score ?? 0);
+    setTeamBScore(match.team_b_score ?? 0);
+
+    const existingStats: Record<
+      string,
+      PlayerStatForm
+    > = {};
 
     match.match_player_stats.forEach((stat) => {
       existingStats[stat.player_id] = {
@@ -262,7 +327,16 @@ export default function AdminMatchesClient({
     }));
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function updateScore(
+    setter: (value: number) => void,
+    value: string
+  ) {
+    setter(Math.max(0, Number(value) || 0));
+  }
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
     setError("");
@@ -282,11 +356,37 @@ export default function AdminMatchesClient({
       return;
     }
 
-    if (status === "completed" && selectedPlayers.length === 0) {
+    if (
+      status === "completed" &&
+      selectedPlayers.length === 0
+    ) {
       setError(
         "The selected teams must have players before completing a match."
       );
       return;
+    }
+
+    if (status === "completed") {
+      if (teamAScore === teamBScore) {
+        setError(
+          "Completed Rocket League matches cannot end in a draw. Please enter a winning score."
+        );
+        return;
+      }
+
+      if (calculatedTeamAScore !== teamAScore) {
+        setError(
+          `${selectedTeamA?.name ?? "Team A"} player goals add up to ${calculatedTeamAScore}, but the team score is ${teamAScore}.`
+        );
+        return;
+      }
+
+      if (calculatedTeamBScore !== teamBScore) {
+        setError(
+          `${selectedTeamB?.name ?? "Team B"} player goals add up to ${calculatedTeamBScore}, but the team score is ${teamBScore}.`
+        );
+        return;
+      }
     }
 
     setSaving(true);
@@ -294,19 +394,30 @@ export default function AdminMatchesClient({
     try {
       let matchId = editingMatch?.id;
 
+      const matchPayload = {
+        team_a_id: teamA,
+        team_b_id: teamB,
+        scheduled_at: new Date(
+          scheduledAt
+        ).toISOString(),
+        status,
+        stage,
+        team_a_score:
+          status === "completed" ? teamAScore : 0,
+        team_b_score:
+          status === "completed" ? teamBScore : 0,
+      };
+
       if (editingMatch) {
-        const { data: updatedMatch, error: updateError } =
-          await supabase
-            .from("matches")
-            .update({
-              team_a_id: teamA,
-              team_b_id: teamB,
-              scheduled_at: new Date(scheduledAt).toISOString(),
-              status,
-            })
-            .eq("id", editingMatch.id)
-            .select()
-            .single();
+        const {
+          data: updatedMatch,
+          error: updateError,
+        } = await supabase
+          .from("matches")
+          .update(matchPayload)
+          .eq("id", editingMatch.id)
+          .select()
+          .single();
 
         if (updateError) {
           throw updateError;
@@ -314,26 +425,24 @@ export default function AdminMatchesClient({
 
         matchId = updatedMatch.id;
 
-        const { error: deleteStatsError } = await supabase
-          .from("match_player_stats")
-          .delete()
-          .eq("match_id", matchId);
+        const { error: deleteStatsError } =
+          await supabase
+            .from("match_player_stats")
+            .delete()
+            .eq("match_id", matchId);
 
         if (deleteStatsError) {
           throw deleteStatsError;
         }
       } else {
-        const { data: newMatch, error: insertError } =
-          await supabase
-            .from("matches")
-            .insert({
-              team_a_id: teamA,
-              team_b_id: teamB,
-              scheduled_at: new Date(scheduledAt).toISOString(),
-              status,
-            })
-            .select()
-            .single();
+        const {
+          data: newMatch,
+          error: insertError,
+        } = await supabase
+          .from("matches")
+          .insert(matchPayload)
+          .select()
+          .single();
 
         if (insertError) {
           throw insertError;
@@ -343,32 +452,38 @@ export default function AdminMatchesClient({
       }
 
       if (!matchId) {
-        throw new Error("Unable to determine match ID.");
+        throw new Error(
+          "Unable to determine match ID."
+        );
       }
 
       if (status === "completed") {
-        const statsToInsert = selectedPlayers.map((player) => {
-          const stats = playerStats[player.id] ?? {
-            goals: 0,
-            assists: 0,
-            saves: 0,
-            shots: 0,
-          };
+        const statsToInsert = selectedPlayers.map(
+          (player) => {
+            const stats =
+              playerStats[player.id] ?? {
+                goals: 0,
+                assists: 0,
+                saves: 0,
+                shots: 0,
+              };
 
-          return {
-            match_id: matchId,
-            player_id: player.id,
-            goals: stats.goals,
-            assists: stats.assists,
-            saves: stats.saves,
-            shots: stats.shots,
-          };
-        });
+            return {
+              match_id: matchId,
+              player_id: player.id,
+              goals: stats.goals,
+              assists: stats.assists,
+              saves: stats.saves,
+              shots: stats.shots,
+            };
+          }
+        );
 
         if (statsToInsert.length > 0) {
-          const { error: statsError } = await supabase
-            .from("match_player_stats")
-            .insert(statsToInsert);
+          const { error: statsError } =
+            await supabase
+              .from("match_player_stats")
+              .insert(statsToInsert);
 
           if (statsError) {
             throw statsError;
@@ -376,34 +491,39 @@ export default function AdminMatchesClient({
         }
       }
 
-      const { data: refreshedMatch, error: refreshError } =
-        await supabase
-          .from("matches")
-          .select(`
+      const {
+        data: refreshedMatch,
+        error: refreshError,
+      } = await supabase
+        .from("matches")
+        .select(`
+          id,
+          scheduled_at,
+          status,
+          stage,
+          team_a_id,
+          team_b_id,
+          team_a_score,
+          team_b_score,
+          teams_a:teams!matches_team_a_id_fkey (
             id,
-            scheduled_at,
-            status,
-            team_a_id,
-            team_b_id,
-            teams_a:teams!matches_team_a_id_fkey (
-              id,
-              name
-            ),
-            teams_b:teams!matches_team_b_id_fkey (
-              id,
-              name
-            ),
-            match_player_stats (
-              id,
-              player_id,
-              goals,
-              assists,
-              saves,
-              shots
-            )
-          `)
-          .eq("id", matchId)
-          .single();
+            name
+          ),
+          teams_b:teams!matches_team_b_id_fkey (
+            id,
+            name
+          ),
+          match_player_stats (
+            id,
+            player_id,
+            goals,
+            assists,
+            saves,
+            shots
+          )
+        `)
+        .eq("id", matchId)
+        .single();
 
       if (refreshError) {
         throw refreshError;
@@ -484,6 +604,7 @@ export default function AdminMatchesClient({
           <div>
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-sky-400/15 bg-sky-400/[0.06] px-4 py-2">
               <CalendarDays className="h-3.5 w-3.5 text-sky-400" />
+
               <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-300">
                 Match Management
               </span>
@@ -494,8 +615,8 @@ export default function AdminMatchesClient({
             </h1>
 
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-400 sm:text-base">
-              Schedule tournament matches and record completed
-              match statistics.
+              Schedule league and playoff matches, record
+              results, and manage player statistics.
             </p>
           </div>
 
@@ -515,7 +636,9 @@ export default function AdminMatchesClient({
 
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
               placeholder="Search teams..."
               className="w-full rounded-xl border border-white/[0.08] bg-white/[0.025] py-3 pl-11 pr-4 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-sky-400/30 focus:bg-white/[0.04]"
             />
@@ -531,7 +654,10 @@ export default function AdminMatchesClient({
                 key={value}
                 onClick={() =>
                   setFilter(
-                    value as "all" | "upcoming" | "completed"
+                    value as
+                      | "all"
+                      | "upcoming"
+                      | "completed"
                   )
                 }
                 className={`rounded-lg px-4 py-2 text-[10px] font-bold transition-all ${
@@ -561,32 +687,6 @@ export default function AdminMatchesClient({
                 const a = getTeam(match.teams_a);
                 const b = getTeam(match.teams_b);
 
-                const scoreA = match.match_player_stats
-                  .filter((stat) =>
-                    initialTeams
-                      .find((team) => team.id === match.team_a_id)
-                      ?.team_players.some(
-                        (player) => player.player_id === stat.player_id
-                      )
-                  )
-                  .reduce(
-                    (total, stat) => total + stat.goals,
-                    0
-                  );
-
-                const scoreB = match.match_player_stats
-                  .filter((stat) =>
-                    initialTeams
-                      .find((team) => team.id === match.team_b_id)
-                      ?.team_players.some(
-                        (player) => player.player_id === stat.player_id
-                      )
-                  )
-                  .reduce(
-                    (total, stat) => total + stat.goals,
-                    0
-                  );
-
                 return (
                   <div
                     key={match.id}
@@ -609,9 +709,11 @@ export default function AdminMatchesClient({
                               {a?.name ?? "Team A"}
                             </span>
 
-                            {match.status === "completed" ? (
+                            {match.status ===
+                            "completed" ? (
                               <span className="text-sm font-black text-slate-300">
-                                {scoreA} — {scoreB}
+                                {match.team_a_score} —{" "}
+                                {match.team_b_score}
                               </span>
                             ) : (
                               <span className="text-[10px] font-bold text-slate-700">
@@ -627,13 +729,20 @@ export default function AdminMatchesClient({
                           <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-slate-600">
                             <span className="flex items-center gap-1.5">
                               <Clock3 className="h-3 w-3" />
-                              {formatDate(match.scheduled_at)}
+                              {formatDate(
+                                match.scheduled_at
+                              )}
                             </span>
 
                             <span className="h-1 w-1 rounded-full bg-slate-800" />
 
+                            <span className="rounded-md border border-white/[0.06] bg-white/[0.025] px-2 py-1 font-bold text-slate-500">
+                              {stageLabel(match.stage)}
+                            </span>
+
                             <span className="flex items-center gap-1.5">
-                              {match.status === "completed" ? (
+                              {match.status ===
+                              "completed" ? (
                                 <>
                                   <CheckCircle2 className="h-3 w-3 text-emerald-400" />
                                   Completed
@@ -652,7 +761,9 @@ export default function AdminMatchesClient({
                       {/* ACTIONS */}
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => openEditModal(match)}
+                          onClick={() =>
+                            openEditModal(match)
+                          }
                           className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-[10px] font-bold text-slate-500 transition-all hover:border-sky-400/20 hover:bg-sky-400/[0.05] hover:text-white"
                         >
                           <Edit3 className="h-3.5 w-3.5" />
@@ -660,11 +771,16 @@ export default function AdminMatchesClient({
                         </button>
 
                         <button
-                          onClick={() => handleDelete(match)}
-                          disabled={deleting === match.id}
+                          onClick={() =>
+                            handleDelete(match)
+                          }
+                          disabled={
+                            deleting === match.id
+                          }
                           className="flex items-center gap-2 rounded-lg border border-red-400/10 bg-red-400/[0.03] px-3 py-2 text-[10px] font-bold text-red-400/70 transition-all hover:border-red-400/20 hover:bg-red-400/[0.06] hover:text-red-300 disabled:opacity-40"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
+
                           {deleting === match.id
                             ? "Deleting..."
                             : "Delete"}
@@ -681,20 +797,23 @@ export default function AdminMatchesClient({
                           </span>
 
                           <span className="rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-[9px] font-semibold text-slate-600">
-                            {match.match_player_stats.length} Players
+                            {
+                              match.match_player_stats
+                                .length
+                            }{" "}
+                            Players
                           </span>
 
                           <span className="rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-[9px] font-semibold text-slate-600">
-                            {match.match_player_stats.reduce(
-                              (sum, stat) => sum + stat.goals,
-                              0
-                            )}{" "}
+                            {match.team_a_score +
+                              match.team_b_score}{" "}
                             Goals
                           </span>
 
                           <span className="rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-[9px] font-semibold text-slate-600">
                             {match.match_player_stats.reduce(
-                              (sum, stat) => sum + stat.assists,
+                              (sum, stat) =>
+                                sum + stat.assists,
                               0
                             )}{" "}
                             Assists
@@ -733,7 +852,9 @@ export default function AdminMatchesClient({
             <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-5">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-sky-400">
-                  {editingMatch ? "Edit Match" : "New Match"}
+                  {editingMatch
+                    ? "Edit Match"
+                    : "New Match"}
                 </p>
 
                 <h2 className="mt-1 text-xl font-black text-white">
@@ -751,8 +872,11 @@ export default function AdminMatchesClient({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6">
-              {/* TEAMS */}
+            <form
+              onSubmit={handleSubmit}
+              className="p-6"
+            >
+              {/* BASIC MATCH INFO */}
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Team A" required>
                   <select
@@ -760,13 +884,18 @@ export default function AdminMatchesClient({
                     onChange={(event) => {
                       setTeamA(event.target.value);
 
-                      if (event.target.value === teamB) {
+                      if (
+                        event.target.value ===
+                        teamB
+                      ) {
                         setTeamB("");
                       }
                     }}
                     className={inputClass}
                   >
-                    <option value="">Select Team A</option>
+                    <option value="">
+                      Select Team A
+                    </option>
 
                     {teams.map((team) => (
                       <option
@@ -786,13 +915,18 @@ export default function AdminMatchesClient({
                     onChange={(event) => {
                       setTeamB(event.target.value);
 
-                      if (event.target.value === teamA) {
+                      if (
+                        event.target.value ===
+                        teamA
+                      ) {
                         setTeamA("");
                       }
                     }}
                     className={inputClass}
                   >
-                    <option value="">Select Team B</option>
+                    <option value="">
+                      Select Team B
+                    </option>
 
                     {teams.map((team) => (
                       <option
@@ -811,10 +945,36 @@ export default function AdminMatchesClient({
                     type="datetime-local"
                     value={scheduledAt}
                     onChange={(event) =>
-                      setScheduledAt(event.target.value)
+                      setScheduledAt(
+                        event.target.value
+                      )
                     }
                     className={inputClass}
                   />
+                </Field>
+
+                <Field label="Match Stage" required>
+                  <select
+                    value={stage}
+                    onChange={(event) =>
+                      setStage(
+                        event.target.value as MatchStage
+                      )
+                    }
+                    className={inputClass}
+                  >
+                    <option value="league">
+                      League
+                    </option>
+
+                    <option value="semifinal">
+                      Semifinal
+                    </option>
+
+                    <option value="final">
+                      Final
+                    </option>
+                  </select>
                 </Field>
 
                 <Field label="Match Status">
@@ -829,36 +989,112 @@ export default function AdminMatchesClient({
                     }
                     className={inputClass}
                   >
-                    <option value="upcoming">Upcoming</option>
-                    <option value="completed">Completed</option>
+                    <option value="upcoming">
+                      Upcoming
+                    </option>
+
+                    <option value="completed">
+                      Completed
+                    </option>
                   </select>
                 </Field>
               </div>
 
-              {/* SCORE PREVIEW */}
+              {/* SCORE */}
               {teamA && teamB && (
                 <div className="mt-7 rounded-2xl border border-sky-400/10 bg-sky-400/[0.035] p-5">
-                  <div className="mb-3 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-600">
-                    Score Preview
-                  </div>
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-sky-400">
+                        Match Result
+                      </p>
 
-                  <div className="flex items-center justify-center gap-5">
-                    <span className="max-w-[35%] truncate text-sm font-black text-white">
-                      {selectedTeamA?.name}
-                    </span>
+                      <p className="mt-1 text-[10px] text-slate-600">
+                        {stageDescription(stage)}
+                      </p>
+                    </div>
 
-                    <span className="text-2xl font-black tracking-tight text-sky-300">
-                      {teamAScore}
-                      <span className="mx-2 text-slate-700">
-                        —
+                    {status === "completed" && (
+                      <span className="rounded-md border border-emerald-400/10 bg-emerald-400/[0.04] px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
+                        Final Score
                       </span>
-                      {teamBScore}
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-4">
+                    {/* TEAM A SCORE */}
+                    <div>
+                      <p className="mb-2 truncate text-center text-xs font-bold text-white">
+                        {selectedTeamA?.name}
+                      </p>
+
+                      <input
+                        type="number"
+                        min="0"
+                        value={teamAScore}
+                        disabled={
+                          status !== "completed"
+                        }
+                        onChange={(event) =>
+                          updateScore(
+                            setTeamAScore,
+                            event.target.value
+                          )
+                        }
+                        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.035] px-4 py-4 text-center text-3xl font-black text-white outline-none transition-all focus:border-sky-400/30 focus:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
+                      />
+                    </div>
+
+                    <span className="pb-4 text-xl font-black text-slate-700">
+                      —
                     </span>
 
-                    <span className="max-w-[35%] truncate text-sm font-black text-white">
-                      {selectedTeamB?.name}
-                    </span>
+                    {/* TEAM B SCORE */}
+                    <div>
+                      <p className="mb-2 truncate text-center text-xs font-bold text-white">
+                        {selectedTeamB?.name}
+                      </p>
+
+                      <input
+                        type="number"
+                        min="0"
+                        value={teamBScore}
+                        disabled={
+                          status !== "completed"
+                        }
+                        onChange={(event) =>
+                          updateScore(
+                            setTeamBScore,
+                            event.target.value
+                          )
+                        }
+                        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.035] px-4 py-4 text-center text-3xl font-black text-white outline-none transition-all focus:border-sky-400/30 focus:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
+                      />
+                    </div>
                   </div>
+
+                  {status === "completed" && (
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      <ScoreCheck
+                        label={`${selectedTeamA?.name ?? "Team A"} player goals`}
+                        value={calculatedTeamAScore}
+                        target={teamAScore}
+                      />
+
+                      <ScoreCheck
+                        label={`${selectedTeamB?.name ?? "Team B"} player goals`}
+                        value={calculatedTeamBScore}
+                        target={teamBScore}
+                      />
+                    </div>
+                  )}
+
+                  {status === "upcoming" && (
+                    <p className="mt-4 text-center text-[10px] text-slate-600">
+                      Score fields become available when the
+                      match is marked completed.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -872,125 +1108,139 @@ export default function AdminMatchesClient({
                       </p>
 
                       <p className="mt-1 text-xs text-slate-600">
-                        Enter the statistics recorded during this
-                        match.
+                        Enter player performance from this
+                        match. Player goals must add up to the
+                        final team score.
                       </p>
                     </div>
 
                     <div className="overflow-hidden rounded-xl border border-white/[0.07]">
-                      {/* DESKTOP HEADERS */}
                       <div className="hidden grid-cols-[1fr_70px_70px_70px_70px] gap-2 border-b border-white/[0.06] bg-white/[0.02] px-4 py-3 sm:grid">
                         <span className="text-[9px] font-bold uppercase tracking-wider text-slate-700">
                           Player
                         </span>
+
                         <span className="text-center text-[9px] font-bold uppercase tracking-wider text-slate-700">
                           Goals
                         </span>
+
                         <span className="text-center text-[9px] font-bold uppercase tracking-wider text-slate-700">
                           Assists
                         </span>
+
                         <span className="text-center text-[9px] font-bold uppercase tracking-wider text-slate-700">
                           Saves
                         </span>
+
                         <span className="text-center text-[9px] font-bold uppercase tracking-wider text-slate-700">
                           Shots
                         </span>
                       </div>
 
                       <div className="divide-y divide-white/[0.05]">
-                        {selectedPlayers.map((player) => {
-                          const stat = playerStats[player.id] ?? {
-                            goals: 0,
-                            assists: 0,
-                            saves: 0,
-                            shots: 0,
-                          };
+                        {selectedPlayers.map(
+                          (player) => {
+                            const stat =
+                              playerStats[
+                                player.id
+                              ] ?? {
+                                goals: 0,
+                                assists: 0,
+                                saves: 0,
+                                shots: 0,
+                              };
 
-                          const team = selectedTeamA?.team_players.some(
-                            (item) => item.player_id === player.id
-                          )
-                            ? selectedTeamA
-                            : selectedTeamB;
+                            const team =
+                              selectedTeamA?.team_players.some(
+                                (item) =>
+                                  item.player_id ===
+                                  player.id
+                              )
+                                ? selectedTeamA
+                                : selectedTeamB;
 
-                          return (
-                            <div
-                              key={player.id}
-                              className="grid gap-3 px-4 py-4 sm:grid-cols-[1fr_70px_70px_70px_70px] sm:items-center sm:gap-2"
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.035]">
-                                  {player.photo_url ? (
-                                    <img
-                                      src={player.photo_url}
-                                      alt=""
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : (
-                                    <Users className="h-4 w-4 text-slate-600" />
-                                  )}
+                            return (
+                              <div
+                                key={player.id}
+                                className="grid gap-3 px-4 py-4 sm:grid-cols-[1fr_70px_70px_70px_70px] sm:items-center sm:gap-2"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.035]">
+                                    {player.photo_url ? (
+                                      <img
+                                        src={
+                                          player.photo_url
+                                        }
+                                        alt=""
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <Users className="h-4 w-4 text-slate-600" />
+                                    )}
+                                  </div>
+
+                                  <div className="min-w-0">
+                                    <p className="truncate text-xs font-bold text-white">
+                                      {player.full_name}
+                                    </p>
+
+                                    <p className="mt-0.5 text-[9px] text-slate-600">
+                                      {team?.name ?? ""}
+                                    </p>
+                                  </div>
                                 </div>
 
-                                <div className="min-w-0">
-                                  <p className="truncate text-xs font-bold text-white">
-                                    {player.full_name}
-                                  </p>
+                                <StatInput
+                                  label="Goals"
+                                  value={stat.goals}
+                                  onChange={(value) =>
+                                    updatePlayerStat(
+                                      player.id,
+                                      "goals",
+                                      value
+                                    )
+                                  }
+                                />
 
-                                  <p className="mt-0.5 text-[9px] text-slate-600">
-                                    {team?.name ?? ""}
-                                  </p>
-                                </div>
+                                <StatInput
+                                  label="Assists"
+                                  value={stat.assists}
+                                  onChange={(value) =>
+                                    updatePlayerStat(
+                                      player.id,
+                                      "assists",
+                                      value
+                                    )
+                                  }
+                                />
+
+                                <StatInput
+                                  label="Saves"
+                                  value={stat.saves}
+                                  onChange={(value) =>
+                                    updatePlayerStat(
+                                      player.id,
+                                      "saves",
+                                      value
+                                    )
+                                  }
+                                />
+
+                                <StatInput
+                                  label="Shots"
+                                  value={stat.shots}
+                                  onChange={(value) =>
+                                    updatePlayerStat(
+                                      player.id,
+                                      "shots",
+                                      value
+                                    )
+                                  }
+                                />
                               </div>
-
-                              <StatInput
-                                label="Goals"
-                                value={stat.goals}
-                                onChange={(value) =>
-                                  updatePlayerStat(
-                                    player.id,
-                                    "goals",
-                                    value
-                                  )
-                                }
-                              />
-
-                              <StatInput
-                                label="Assists"
-                                value={stat.assists}
-                                onChange={(value) =>
-                                  updatePlayerStat(
-                                    player.id,
-                                    "assists",
-                                    value
-                                  )
-                                }
-                              />
-
-                              <StatInput
-                                label="Saves"
-                                value={stat.saves}
-                                onChange={(value) =>
-                                  updatePlayerStat(
-                                    player.id,
-                                    "saves",
-                                    value
-                                  )
-                                }
-                              />
-
-                              <StatInput
-                                label="Shots"
-                                value={stat.shots}
-                                onChange={(value) =>
-                                  updatePlayerStat(
-                                    player.id,
-                                    "shots",
-                                    value
-                                  )
-                                }
-                              />
-                            </div>
-                          );
-                        })}
+                            );
+                          }
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1006,8 +1256,8 @@ export default function AdminMatchesClient({
                     </p>
 
                     <p className="mt-1 text-[10px] text-amber-200/50">
-                      Both teams need players before player statistics
-                      can be recorded.
+                      Both teams need players before player
+                      statistics can be recorded.
                     </p>
                   </div>
                 )}
@@ -1062,7 +1312,12 @@ function Field({
     <label className="block">
       <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
         {label}
-        {required && <span className="ml-1 text-sky-400">*</span>}
+
+        {required && (
+          <span className="ml-1 text-sky-400">
+            *
+          </span>
+        )}
       </span>
 
       {children}
@@ -1089,10 +1344,48 @@ function StatInput({
         type="number"
         min="0"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
         className="w-full rounded-lg border border-white/[0.07] bg-white/[0.025] px-2 py-2 text-center text-xs font-bold text-white outline-none transition-all focus:border-sky-400/30 focus:bg-white/[0.04]"
       />
     </label>
+  );
+}
+
+function ScoreCheck({
+  label,
+  value,
+  target,
+}: {
+  label: string;
+  value: number;
+  target: number;
+}) {
+  const matches = value === target;
+
+  return (
+    <div
+      className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+        matches
+          ? "border-emerald-400/10 bg-emerald-400/[0.035]"
+          : "border-amber-400/10 bg-amber-400/[0.035]"
+      }`}
+    >
+      <span className="truncate text-[9px] font-semibold text-slate-500">
+        {label}
+      </span>
+
+      <span
+        className={`ml-3 text-[10px] font-black ${
+          matches
+            ? "text-emerald-400"
+            : "text-amber-300"
+        }`}
+      >
+        {value} / {target}
+      </span>
+    </div>
   );
 }
 
