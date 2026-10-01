@@ -44,7 +44,8 @@ export default async function StatsPage() {
         team_b_id,
         team_a_score,
         team_b_score,
-        status
+        status,
+        stage
       `),
 
     supabase
@@ -83,10 +84,6 @@ export default async function StatsPage() {
   // TEAM / PLAYER MAPS
   // ------------------------------------------------------------
 
-  const playerMap = new Map(
-    (players ?? []).map((player) => [player.id, player])
-  );
-
   const teamMap = new Map(
     (teams ?? []).map((team) => [team.id, team])
   );
@@ -96,6 +93,19 @@ export default async function StatsPage() {
   for (const entry of teamPlayers ?? []) {
     playerTeamMap.set(entry.player_id, entry.team_id);
   }
+
+  // ------------------------------------------------------------
+  // COMPLETED MATCHES
+  // ------------------------------------------------------------
+
+  const completedMatches = (matches ?? []).filter(
+    (match) => match.status === "completed"
+  );
+
+  // Only league-phase matches count toward the league table.
+  const completedLeagueMatches = completedMatches.filter(
+    (match) => match.stage === "league"
+  );
 
   // ------------------------------------------------------------
   // LEAGUE STANDINGS
@@ -117,11 +127,7 @@ export default async function StatsPage() {
     });
   }
 
-  const completedMatches = (matches ?? []).filter(
-    (match) => match.status === "completed"
-  );
-
-  for (const match of completedMatches) {
+  for (const match of completedLeagueMatches) {
     const teamA = standingsMap.get(match.team_a_id);
     const teamB = standingsMap.get(match.team_b_id);
 
@@ -193,6 +199,8 @@ export default async function StatsPage() {
   // PLAYER STATISTICS
   // ------------------------------------------------------------
 
+  // Player statistics include ALL completed matches,
+  // including knockout matches.
   const completedMatchIds = new Set(
     completedMatches.map((match) => match.id)
   );

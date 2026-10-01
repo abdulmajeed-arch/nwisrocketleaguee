@@ -272,7 +272,7 @@ export default function StatsClient({
               </div>
 
               <p className="mt-1 text-[11px] text-slate-600">
-                1 point for a win · Top 4 qualify for the semifinals
+                1 point for a win · Top 16 qualify for the round of 16.
               </p>
             </div>
 
@@ -331,7 +331,7 @@ export default function StatsClient({
                   <tbody>
                     {standings.map((team, index) => {
                       const playoff =
-                        team.position <= 4;
+                        team.position <= 16;
 
                       const gdLabel =
                         team.gd > 0
@@ -379,7 +379,7 @@ export default function StatsClient({
                                 <span
                                   className="hidden text-[9px] font-bold uppercase tracking-[0.12em] text-sky-500/70 lg:block"
                                 >
-                                  SF
+                                  R16
                                 </span>
                               )}
                             </div>

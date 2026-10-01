@@ -46,7 +46,12 @@ type MatchStat = {
   shots: number;
 };
 
-type MatchStage = "league" | "semifinal" | "final";
+type MatchStage =
+  | "league"
+  | "round_of_16"
+  | "quarterfinal"
+  | "semifinal"
+  | "final";
 
 type Match = {
   id: string;
@@ -115,17 +120,25 @@ function formatDate(value: string) {
 
 function stageLabel(stage: MatchStage) {
   switch (stage) {
+    case "round_of_16":
+      return "Round of 16";
+    case "quarterfinal":
+      return "Quarterfinal";
     case "semifinal":
       return "Semifinal";
     case "final":
       return "Final";
     default:
-      return "League";
+      return "League Phase";
   }
 }
 
 function stageDescription(stage: MatchStage) {
   switch (stage) {
+    case "round_of_16":
+      return "Round of 16 playoff";
+    case "quarterfinal":
+      return "Quarterfinal playoff";
     case "semifinal":
       return "Playoff semifinal";
     case "final":
@@ -964,16 +977,24 @@ export default function AdminMatchesClient({
                     className={inputClass}
                   >
                     <option value="league">
-                      League
-                    </option>
+  League Phase
+</option>
 
-                    <option value="semifinal">
-                      Semifinal
-                    </option>
+<option value="round_of_16">
+  Round of 16
+</option>
 
-                    <option value="final">
-                      Final
-                    </option>
+<option value="quarterfinal">
+  Quarterfinal
+</option>
+
+<option value="semifinal">
+  Semifinal
+</option>
+
+<option value="final">
+  Final
+</option>
                   </select>
                 </Field>
 
